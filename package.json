@@ -1,0 +1,44 @@
+{
+  "name": "omle.js",
+  "version": "0.1.0",
+  "description": "TypeScript library for loading, parsing, validating, and executing OMLE models",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "dev": "tsc --watch",
+    "test": "vitest run",
+    "verify": "npx tsx tools/verify_engine.ts",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "gen:ir": "python3 scripts/gen_ir_ts.py src/ir.ts",
+    "gen:ir:local": "OMLE_PROTO_PATH=../omle/protobuf/omle.proto python3 scripts/gen_ir_ts.py src/ir.ts"
+  },
+  "files": [
+    "dist/"
+  ],
+  "keywords": [
+    "omle",
+    "machine-learning",
+    "model-exchange"
+  ],
+  "license": "Apache-2.0",
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/node": "^25.6.0",
+    "eslint": "^10.10.0",
+    "protobufjs": "^8.2.0",
+    "tsx": "^4.21.0",
+    "typescript": "^5.4.0",
+    "typescript-eslint": "^8.70.0",
+    "vitest": "^4.1.5"
+  }
+}
