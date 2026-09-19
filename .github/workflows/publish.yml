@@ -15,6 +15,38 @@ jobs:
     steps:
       - uses: actions/checkout@v4.2.2
 
+      # Fails fast, before the expensive gates below, if the tag and
+      # package.json disagree about what version is being released.
+      - name: Resolve release version and dist-tag
+        id: release
+        run: |
+          set -euo pipefail
+          TAG="$GITHUB_REF_NAME"
+          VERSION="${TAG#v}"
+
+          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$ ]]; then
+            echo "::error::Tag '$TAG' is not a semver release tag (expected vMAJOR.MINOR.PATCH[-prerelease])."
+            exit 1
+          fi
+
+          PKG_VERSION="$(node -p "require('./package.json').version")"
+          if [[ "$VERSION" != "$PKG_VERSION" ]]; then
+            echo "::error::Tag '$TAG' implies version $VERSION, but package.json declares $PKG_VERSION. Update package.json (and the lockfile) or retag."
+            exit 1
+          fi
+
+          # Any semver prerelease (0.1.0-rc.1, 0.1.0-next.3, ...) ships to 'next',
+          # so it never becomes what a bare `npm install` resolves to.
+          if [[ "$VERSION" == *-* ]]; then
+            DIST_TAG=next
+          else
+            DIST_TAG=latest
+          fi
+
+          echo "version=$VERSION"   >> "$GITHUB_OUTPUT"
+          echo "dist_tag=$DIST_TAG" >> "$GITHUB_OUTPUT"
+          echo "Publishing $VERSION with dist-tag '$DIST_TAG'."
+
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
@@ -27,16 +59,6 @@ jobs:
       - run: npm test
       - run: npm run build
 
-      - name: Set dist-tag
-        id: tag
-        run: |
-          VERSION=$(node -p "require('./package.json').version")
-          if [[ "$VERSION" =~ (alpha|beta|rc) ]]; then
-            echo "dist_tag=next" >> "$GITHUB_OUTPUT"
-          else
-            echo "dist_tag=latest" >> "$GITHUB_OUTPUT"
-          fi
-
-      - run: npm publish --provenance --access public --tag ${{ steps.tag.outputs.dist_tag }}
+      - run: npm publish --provenance --access public --tag ${{ steps.release.outputs.dist_tag }}
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

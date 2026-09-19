@@ -1,5 +1,5 @@
 {
-  "name": "omle.js",
+  "name": "@openmle/omle.js",
   "version": "0.1.0",
   "description": "TypeScript library for loading, parsing, validating, and executing OMLE models",
   "type": "module",
@@ -31,6 +31,9 @@
     "model-exchange"
   ],
   "license": "Apache-2.0",
+  "publishConfig": {
+    "access": "public"
+  },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@types/node": "^25.6.0",

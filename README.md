@@ -14,7 +14,7 @@ TypeScript library for loading, parsing, validating, and executing [OMLE](https:
 ## Installation
 
 ```bash
-npm install omle.js
+npm install @openmle/omle.js
 ```
 
 > **Node ≥ 18, ESM only.** The package ships ES2022 modules with full `.d.ts` declarations.
@@ -22,7 +22,7 @@ npm install omle.js
 ## Quick start
 
 ```ts
-import { fromJSON, validate, Engine } from 'omle.js';
+import { fromJSON, validate, Engine } from '@openmle/omle.js';
 import { readFileSync } from 'node:fs';
 
 const model = fromJSON(readFileSync('model.json', 'utf8'));
@@ -130,7 +130,7 @@ interface SteppedResult {
 ### Ops utilities
 
 ```ts
-import { tensorToData, applyPostTransform } from 'omle.js';
+import { tensorToData, applyPostTransform } from '@openmle/omle.js';
 
 // Convert an IR Tensor to the engine's internal TensorData
 tensorToData(tensor: Tensor): TensorData
