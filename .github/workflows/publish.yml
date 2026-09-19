@@ -15,8 +15,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4.2.2
 
-      # Fails fast, before the expensive gates below, if the tag and
-      # package.json disagree about what version is being released.
+      # The git tag is the single source of truth for the release version.
+      # package.json carries a placeholder (0.0.0-dev) that is never published;
+      # the real version is written into it below, just before `npm publish`.
       - name: Resolve release version and dist-tag
         id: release
         run: |
@@ -29,13 +30,7 @@ jobs:
             exit 1
           fi
 
-          PKG_VERSION="$(node -p "require('./package.json').version")"
-          if [[ "$VERSION" != "$PKG_VERSION" ]]; then
-            echo "::error::Tag '$TAG' implies version $VERSION, but package.json declares $PKG_VERSION. Update package.json (and the lockfile) or retag."
-            exit 1
-          fi
-
-          # Any semver prerelease (0.1.0-rc.1, 0.1.0-next.3, ...) ships to 'next',
+          # Any semver prerelease (0.1.0-rc2, 0.2.0-next.3, ...) ships to 'next',
           # so it never becomes what a bare `npm install` resolves to.
           if [[ "$VERSION" == *-* ]]; then
             DIST_TAG=next
@@ -58,6 +53,15 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - run: npm run build
+
+      # Runs after the gates so they execute against the committed tree; the
+      # only difference at publish time is the version field. Not committed.
+      - name: Stamp version from tag
+        run: |
+          set -euo pipefail
+          npm version "${{ steps.release.outputs.version }}" \
+            --no-git-tag-version --allow-same-version
+          echo "package.json version is now $(node -p "require('./package.json').version")"
 
       - run: npm publish --provenance --access public --tag ${{ steps.release.outputs.dist_tag }}
         env:
