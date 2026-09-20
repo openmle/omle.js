@@ -65,7 +65,9 @@ const SUPPORTED_MAJORS = new Set([0, 1]);
 function checkMetadata(model: OMLEModel, issues: ValidationIssue[]) {
   const ver = model.metadata?.format_version;
   if (!ver) {
-    warn(issues, 'metadata.format_version', 'format_version is missing');
+    // An error, matching omle/validation.py — the two implementations must
+    // agree on whether a given file is valid.
+    err(issues, 'metadata.format_version', 'format_version must not be empty');
     return;
   }
   const [major] = ver.split('.').map(Number);

@@ -43,9 +43,10 @@ describe('format_version', () => {
     expect(errors[0]?.message).toContain('Malformed');
   });
 
-  test('a missing version warns', () => {
-    const { errors, warnings } = issuesFor(undefined);
-    expect(errors).toEqual([]);
-    expect(warnings).toHaveLength(1);
+  test('a missing version is an error, matching the Python SDK', () => {
+    const { result, errors } = issuesFor(undefined);
+    expect(errors).toHaveLength(1);
+    expect(errors[0]?.message).toContain('must not be empty');
+    expect(result.valid).toBe(false);
   });
 });
