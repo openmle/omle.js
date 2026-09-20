@@ -9,6 +9,7 @@
 
 export * from './ir.js';
 export * from './io.js';
+export { fromProtoBinary } from './proto.js';
 export * from './resolve.js';
 export * from './validate.js';
 
