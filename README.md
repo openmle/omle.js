@@ -1,5 +1,8 @@
 # omle.js
 
+[![npm](https://img.shields.io/npm/v/%40openmle%2Fomle.js/next.svg)](https://www.npmjs.com/package/@openmle/omle.js)
+[![Tests](https://github.com/openmle/omle.js/actions/workflows/test.yml/badge.svg)](https://github.com/openmle/omle.js/actions/workflows/test.yml)
+
 TypeScript library for loading, parsing, validating, and executing [OMLE](https://github.com/openmle) models. Works in Node.js and the browser. One runtime dependency (`protobufjs`, for binary `.omle` decoding).
 
 ## Features
