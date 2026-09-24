@@ -158,4 +158,3 @@ describe('executeNaiveBayes — Multinomial', () => {
     expect(out[0]).toBeGreaterThan(out[1]);
   });
 });
-

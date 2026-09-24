@@ -1,11 +1,14 @@
 # omle.js
 
-TypeScript library for loading, parsing, validating, and executing [OMLE](https://github.com/openmle) models. Works in Node.js and the browser. Zero runtime dependencies.
+[![npm](https://img.shields.io/npm/v/%40openmle%2Fomle.js/next.svg)](https://www.npmjs.com/package/@openmle/omle.js)
+[![Tests](https://github.com/openmle/omle.js/actions/workflows/test.yml/badge.svg)](https://github.com/openmle/omle.js/actions/workflows/test.yml)
+
+TypeScript library for loading, parsing, validating, and executing [OMLE](https://github.com/openmle) models. Works in Node.js and the browser. One runtime dependency (`protobufjs`, for binary `.omle` decoding).
 
 ## Features
 
 - **Full IR** — TypeScript types for every message in `omle.proto`, following the Python SDK's JSON conventions (enums as strings, flat typed-data arrays, base64 bytes).
-- **I/O** — `fromJSON` / `toJSON`, Node.js `loadFile` / `saveFile`, browser `loadBlob`.
+- **I/O** — `fromJSON` / `toJSON`, `fromProtoBinary` for binary `.omle` files, Node.js `loadFile` / `saveFile`, browser `loadBlob`.
 - **Resolution** — builds a tensor-entry index, topologically sorts the DAG, and expands `NameRange` patterns.
 - **Validation** — structural and semantic checks with per-path error and warning messages.
 - **Reference engine** — executes models in topological order with full composite-node scoping. Supports all structured bodies: decision tree, tree ensemble, linear, neural network (dense layers), naïve Bayes (Gaussian / Multinomial / Bernoulli / Categorical), prototype clustering, GMM, and linear and kernel SVM.
@@ -14,7 +17,7 @@ TypeScript library for loading, parsing, validating, and executing [OMLE](https:
 ## Installation
 
 ```bash
-npm install omle.js
+npm install @openmle/omle.js
 ```
 
 > **Node ≥ 18, ESM only.** The package ships ES2022 modules with full `.d.ts` declarations.
@@ -22,7 +25,7 @@ npm install omle.js
 ## Quick start
 
 ```ts
-import { fromJSON, validate, Engine } from 'omle.js';
+import { fromJSON, validate, Engine } from '@openmle/omle.js';
 import { readFileSync } from 'node:fs';
 
 const model = fromJSON(readFileSync('model.json', 'utf8'));
@@ -47,6 +50,10 @@ console.log(outputs);
 ```ts
 fromJSON(json: string | object): OMLEModel
 toJSON(model: OMLEModel, pretty?: boolean): string
+
+// Binary .omle files (protobuf wire format). The schema is embedded, so
+// nothing is fetched or compiled at build time.
+fromProtoBinary(data: ArrayBuffer | Uint8Array): OMLEModel
 
 // Node.js only
 loadFile(path: string): Promise<OMLEModel>
@@ -130,7 +137,7 @@ interface SteppedResult {
 ### Ops utilities
 
 ```ts
-import { tensorToData, applyPostTransform } from 'omle.js';
+import { tensorToData, applyPostTransform } from '@openmle/omle.js';
 
 // Convert an IR Tensor to the engine's internal TensorData
 tensorToData(tensor: Tensor): TensorData

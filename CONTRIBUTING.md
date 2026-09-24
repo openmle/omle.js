@@ -115,6 +115,28 @@ before the fix is the most useful thing you can include. When a fix corrects a
 numeric result, state the expected value's source in the test — the framework
 that trained the model, or omle-runtime.
 
+## Releasing
+
+Releases are driven entirely by git tags. `package.json` carries a placeholder
+version (`0.0.0-dev`) that is never published — there is no need to bump it, and
+pull requests should leave it alone.
+
+Push a tag and `.github/workflows/publish.yml` does the rest: it derives the
+version from the tag, runs lint, typecheck, tests and the build, writes that
+version into `package.json`, and publishes to npm with provenance.
+
+```bash
+git tag v0.2.0
+git push origin v0.2.0
+```
+
+A tag carrying a semver prerelease (`v0.2.0-rc1`) publishes under the `next`
+dist-tag, so `npm install @openmle/omle.js` keeps resolving to the last stable
+release; test it with `npm install @openmle/omle.js@next`. A plain `v0.2.0`
+publishes to `latest`.
+
+Tags that are not semver (`vnightly`, `v0.2`) fail before anything is built.
+
 ## Reporting bugs
 
 Include the model file (or the script that produced it), the input that triggers

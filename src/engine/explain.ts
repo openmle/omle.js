@@ -182,7 +182,11 @@ function explainTreeEnsemble(
     : perTreeWidth;
 
   const rawScores = new Float64Array(outWidth);
-  if (ensemble.base_score != null) rawScores.fill(scalarToNumber(ensemble.base_score));
+  const explainBase = resolveTensorValue(ensemble.base_scores, resolved.tensorIndex);
+  if (explainBase) {
+    const bs = Array.from(tensorToData(explainBase).data as ArrayLike<number>).map(Number);
+    if (bs.length > 0) rawScores.fill(bs[0]);
+  }
 
   const agg = ensemble.aggregation ?? 'SUM';
   let totalWeight = 0;
@@ -207,7 +211,9 @@ function explainTreeEnsemble(
   return {
     type: 'tree_ensemble',
     aggregation: agg,
-    baseScore: ensemble.base_score != null ? scalarToNumber(ensemble.base_score) : null,
+    baseScore: explainBase
+      ? Number((tensorToData(explainBase).data as ArrayLike<number>)[0] ?? 0)
+      : null,
     trees: treeItems,
     classScores: Array.from(finalScores),
   };

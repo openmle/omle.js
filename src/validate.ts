@@ -57,15 +57,32 @@ function warn(issues: ValidationIssue[], path: string, message: string) {
   issues.push({ severity: 'warning', path, message });
 }
 
+// The OMLE format is pre-1.0 — omle.proto states "The format is currently
+// pre-1.0" and gives "0.1.0" as its example — so 0.x is what every model in the
+// wild carries. 1.x is accepted ahead of the v1 release.
+const SUPPORTED_MAJORS = new Set([0, 1]);
+
 function checkMetadata(model: OMLEModel, issues: ValidationIssue[]) {
   const ver = model.metadata?.format_version;
   if (!ver) {
-    warn(issues, 'metadata.format_version', 'format_version is missing');
+    // An error, matching omle/validation.py — the two implementations must
+    // agree on whether a given file is valid.
+    err(issues, 'metadata.format_version', 'format_version must not be empty');
     return;
   }
   const [major] = ver.split('.').map(Number);
-  if (major !== 1) {
-    err(issues, 'metadata.format_version', `Unsupported major version: ${major} (expected 1)`);
+  if (!Number.isFinite(major)) {
+    err(issues, 'metadata.format_version', `Malformed format_version: ${ver}`);
+    return;
+  }
+  // A warning, not an error: the Python SDK loads any non-empty version, and
+  // erroring here would make the two implementations disagree about one file.
+  if (!SUPPORTED_MAJORS.has(major)) {
+    warn(
+      issues,
+      'metadata.format_version',
+      `Unrecognized major version: ${major} (this build understands 0.x and 1.x)`,
+    );
   }
 }
 

@@ -1,6 +1,6 @@
 {
-  "name": "omle.js",
-  "version": "0.1.0",
+  "name": "@openmle/omle.js",
+  "version": "0.0.0-dev",
   "description": "TypeScript library for loading, parsing, validating, and executing OMLE models",
   "type": "module",
   "main": "./dist/index.js",
@@ -20,7 +20,9 @@
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "gen:ir": "python3 scripts/gen_ir_ts.py src/ir.ts",
-    "gen:ir:local": "OMLE_PROTO_PATH=../omle/protobuf/omle.proto python3 scripts/gen_ir_ts.py src/ir.ts"
+    "gen:ir:local": "OMLE_PROTO_PATH=../omle/protobuf/omle.proto python3 scripts/gen_ir_ts.py src/ir.ts",
+    "gen:proto": "node scripts/gen_proto_descriptor.mjs src/proto_descriptor.ts",
+    "gen:proto:local": "OMLE_PROTO_PATH=../omle/protobuf/omle.proto node scripts/gen_proto_descriptor.mjs src/proto_descriptor.ts"
   },
   "files": [
     "dist/"
@@ -31,14 +33,23 @@
     "model-exchange"
   ],
   "license": "Apache-2.0",
+  "publishConfig": {
+    "access": "public"
+  },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@types/node": "^25.6.0",
     "eslint": "^10.10.0",
-    "protobufjs": "^8.2.0",
     "tsx": "^4.21.0",
     "typescript": "^5.4.0",
     "typescript-eslint": "^8.70.0",
     "vitest": "^4.1.5"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/openmle/omle.js.git"
+  },
+  "dependencies": {
+    "protobufjs": "^8.2.0"
   }
 }
