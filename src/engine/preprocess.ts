@@ -52,6 +52,43 @@ function getMatrixInput(
   return { data, cols: totalCols };
 }
 
+/**
+ * Type-preserving view of the concatenated inputs, addressed by (row, col).
+ *
+ * getMatrixInput() copies everything into a Float64Array, which is what the
+ * arithmetic operators want but turns a STRING column into NaN. A categorical
+ * operator matches its input against a category list, so it needs the value
+ * as stored -- narrowing "male" to NaN meant no category ever matched and the
+ * encoder emitted an all-zero row.
+ */
+function getMatrixCells(
+  inputNames: string[],
+  namespace: Map<string, TensorData>,
+): { cell: (row: number, col: number) => number | string; cols: number } {
+  const parts: { data: ArrayLike<unknown>; cols: number }[] = [];
+  const partOfCol: number[] = [];
+  const colInPart: number[] = [];
+  for (const name of inputNames) {
+    const td = namespace.get(name);
+    if (!td) continue;
+    const cols = tensorCols(td);
+    const pi = parts.length;
+    parts.push({ data: td.data as ArrayLike<unknown>, cols });
+    for (let c = 0; c < cols; c++) {
+      partOfCol.push(pi);
+      colInPart.push(c);
+    }
+  }
+  const cell = (row: number, col: number): number | string => {
+    const pi = partOfCol[col];
+    if (pi === undefined) return NaN;
+    const p = parts[pi];
+    const v = p.data[row * p.cols + colInPart[col]];
+    return typeof v === 'string' ? v : Number(v);
+  };
+  return { cell, cols: partOfCol.length };
+}
+
 function publishMatrix(
   node: Node,
   data: Float64Array,
@@ -751,8 +788,10 @@ export function executeOneHotEncoder(
 
   // Categories may be stored as an inline string list (attr.strings) or as a tensor.
   const catTd = getTensorData(catAttr, resolved);
-  const categories: string[] = catTd
-    ? (catTd.data as string[])
+  // Kept untyped: a STRING tensor decodes to string[], an INT64 tensor to a
+  // numeric array, and matchCategory() handles both.
+  const categories: ArrayLike<unknown> = catTd
+    ? (catTd.data as ArrayLike<unknown>)
     : (catAttr.strings ?? []);
   if (categories.length === 0) return;
 
@@ -764,7 +803,7 @@ export function executeOneHotEncoder(
 
   const dropLast = getAttr(node, 'drop_last')?.b ?? false;
 
-  const { data: inData, cols: inCols } = getMatrixInput(inputNames, namespace, N);
+  const { cell, cols: inCols } = getMatrixCells(inputNames, namespace);
 
   const nFeatures = inCols;
   // Compute per-feature category counts, applying drop_last
@@ -789,8 +828,7 @@ export function executeOneHotEncoder(
     if (onePerOutput) {
       const col = new Float64Array(N * keep);
       for (let row = 0; row < N; row++) {
-        const rawVal = inData[row * nFeatures + fi];
-        const catIdx = matchCategory(rawVal, categories, start, end);
+        const catIdx = matchCategory(cell(row, fi), categories, start, end);
         if (catIdx >= 0) {
           const c = catIdx - start;
           if (c < keep) col[row * keep + c] = 1;
@@ -800,8 +838,7 @@ export function executeOneHotEncoder(
       if (outName) namespace.set(outName, { dtype: 'FLOAT64', shape: keep === 1 ? [N] : [N, keep], data: col });
     } else {
       for (let row = 0; row < N; row++) {
-        const rawVal = inData[row * nFeatures + fi];
-        const catIdx = matchCategory(rawVal, categories, start, end);
+        const catIdx = matchCategory(cell(row, fi), categories, start, end);
         if (catIdx >= 0) {
           const c = catIdx - start;
           if (c < keep) combined![row * outCols + outBase + c] = 1;
@@ -814,20 +851,55 @@ export function executeOneHotEncoder(
   if (!onePerOutput) publishMatrix(node, combined!, N, outCols, namespace);
 }
 
-function matchCategory(val: number, cats: string[], start: number, end: number): number {
-  // Try integer string first, then float string
+function matchCategory(
+  val: number | string,
+  cats: ArrayLike<unknown>,
+  start: number,
+  end: number,
+): number {
+  // Categories arrive either as a string list or as a numeric tensor -- an
+  // INT64 `categories` tensor decodes to numbers. The previous version was
+  // typed `cats: string[]`, stringified the probe and compared with ===, so a
+  // numeric category could never match: 1 === "1" is false, and every model
+  // whose categories were stored as integers one-hot encoded to all zeros.
+
+  // Exact match on the value's own type first.
+  for (let i = start; i < end; i++) {
+    if (cats[i] === val) return i;
+  }
+
+  if (typeof val === 'string') {
+    // String probe against a numeric category list.
+    const n = Number(val);
+    if (val.trim() !== '' && !Number.isNaN(n)) {
+      for (let i = start; i < end; i++) {
+        if (typeof cats[i] === 'number' && (cats[i] as number) === n) return i;
+      }
+    }
+    return -1;
+  }
+
+  if (Number.isNaN(val)) {
+    // Missing values: converters stringify a missing category with str(), so
+    // it is stored as "nan". NaN !== NaN, so the exact pass above cannot find
+    // a numeric NaN category either.
+    for (let i = start; i < end; i++) {
+      const c = cats[i];
+      if (typeof c === 'string' && c.toLowerCase() === 'nan') return i;
+      if (typeof c === 'number' && Number.isNaN(c)) return i;
+    }
+    return -1;
+  }
+
+  // Numeric probe against a string category list: str() may have produced
+  // "3" or "3.0" for the same value.
   const intStr = String(Math.round(val));
-  for (let i = start; i < end; i++) {
-    if (cats[i] === intStr) return i;
-  }
   const floatStr = String(val);
+  const dotStr = Number.isFinite(val) ? val.toFixed(1) : floatStr;
   for (let i = start; i < end; i++) {
-    if (cats[i] === floatStr) return i;
-  }
-  // Try "val.0" form
-  const dotStr = val.toFixed(1);
-  for (let i = start; i < end; i++) {
-    if (cats[i] === dotStr) return i;
+    const c = cats[i];
+    if (typeof c !== 'string') continue;
+    if (c === intStr || c === floatStr || c === dotStr) return i;
   }
   return -1;
 }
@@ -1164,47 +1236,26 @@ export function executeImputer(
   resolved: ResolvedModel,
 ): void {
   const fillTd = getTensorData(getAttr(node, 'fill_tensor'), resolved);
-  const fills = fillTd ? (fillTd.data as Float64Array) : new Float64Array(0);
-  const outputs = node.outputs ?? [];
+  const fills = fillTd ? fillTd.data : new Float64Array(0);
 
-  if (inputNames.length === 1) {
-    // Single matrix input [N, F] — impute column-wise
-    const td = namespace.get(inputNames[0]);
-    if (!td) return;
-    const src = td.data as Float64Array;
-    const cols = td.shape.length >= 2 ? td.shape.slice(1).reduce((a, b) => a * b, 1) : 1;
-    const out = new Float64Array(N * cols);
-    for (let row = 0; row < N; row++) {
-      for (let c = 0; c < cols; c++) {
-        const v = src[row * cols + c];
-        out[row * cols + c] = isNaN(v) ? (fills[c] ?? 0) : v;
-      }
+  // One wide [N, F] matrix whether the features arrive as a single tensor or
+  // as F separate single-column inputs.
+  //
+  // The multi-input branch this replaced wrote one output per input
+  // (outputs[fi]), so a ColumnTransformer feeding several columns into one
+  // imputer with a single output dropped every feature after the first --
+  // outputs[1] was undefined and the write was silently skipped. publishMatrix
+  // still splits per output when the node declares one output per column,
+  // which is the Spark Imputer shape.
+  const { data, cols } = getMatrixInput(inputNames, namespace, N);
+  const out = new Float64Array(N * cols);
+  for (let row = 0; row < N; row++) {
+    for (let c = 0; c < cols; c++) {
+      const v = data[row * cols + c];
+      out[row * cols + c] = isNaN(v) ? Number(fills[c] ?? 0) : v;
     }
-    const outEntry = outputs[0];
-    if (outEntry) {
-      namespace.set(outEntry.name, {
-        dtype: 'FLOAT64',
-        shape: cols > 1 ? [N, cols] : [N],
-        data: out,
-      });
-    }
-    return;
   }
-
-  // Multiple named inputs — one per feature
-  for (let fi = 0; fi < inputNames.length; fi++) {
-    const td = namespace.get(inputNames[fi]);
-    if (!td) continue;
-    const src = td.data as Float64Array;
-    const fill = fills[fi] ?? 0;
-    const out = new Float64Array(N);
-    for (let row = 0; row < N; row++) {
-      const v = src[row];
-      out[row] = isNaN(v) ? fill : v;
-    }
-    const outEntry = outputs[fi];
-    if (outEntry) namespace.set(outEntry.name, { dtype: 'FLOAT64', shape: [N], data: out });
-  }
+  publishMatrix(node, out, N, cols, namespace);
 }
 
 export function executePCA(

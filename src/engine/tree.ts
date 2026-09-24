@@ -1,7 +1,7 @@
 // Decision tree and tree ensemble execution for the reference engine.
 
 import type { Tree, TreeEnsemble, TreeSplitOp } from '../ir.js';
-import { scalarToNumber } from '../ir.js';
+
 import { applyPostTransform, tensorToData } from './ops.js';
 import type { ResolvedModel } from '../resolve.js';
 import { resolveTensorValue } from '../resolve.js';
@@ -161,8 +161,20 @@ export function executeTreeEnsemble(
   const weightsTensor = resolveTensorValue(ensemble.tree_weights, resolved.tensorIndex);
   const weightsData = weightsTensor ? tensorToData(weightsTensor).data as Float64Array : null;
   const aggregation = ensemble.aggregation ?? 'SUM';
-  const baseScore = ensemble.base_score != null ? scalarToNumber(ensemble.base_score) : null;
+  // base_scores is a TensorValue with one entry per output column (a single
+  // entry for regression and binary). The field was read as `base_score`, a
+  // Scalar that the proto has not had for some time, so it was always
+  // undefined and the ensemble's intercept was simply left out -- every
+  // gradient-boosted model came back offset by a constant.
+  const baseTensor = resolveTensorValue(ensemble.base_scores, resolved.tensorIndex);
+  const baseScores = baseTensor
+    ? Array.from(tensorToData(baseTensor).data as ArrayLike<number>).map(Number)
+    : null;
   const treeGroup = ensemble.tree_group;
+  const leafDtypeIsF32 = (ensemble.trees ?? []).some(t => {
+    const lv = resolveTensorValue(t.leaf_value, resolved.tensorIndex);
+    return lv?.type?.dtype === 'FLOAT32';
+  });
 
   // Determine output width after aggregation
   const _numClasses = perTreeWidth > 1 ? perTreeWidth : 1;
@@ -177,8 +189,13 @@ export function executeTreeEnsemble(
 
   const rawScores = new Float64Array(N * outWidth);
 
-  if (baseScore !== null && baseScore !== undefined) {
-    rawScores.fill(baseScore);
+  if (baseScores && baseScores.length > 0) {
+    // One base score per output column; a single value applies to every
+    // column, which is how binary and regression ensembles store it.
+    for (let row = 0; row < N; row++)
+      for (let k = 0; k < outWidth; k++)
+        rawScores[row * outWidth + k] =
+          baseScores.length === 1 ? baseScores[0] : (baseScores[k] ?? 0);
   }
 
   switch (aggregation) {
@@ -305,5 +322,19 @@ export function executeTreeEnsemble(
       }
   }
 
-  return applyPostTransform(rawScores, ensemble.post_transform, outWidth);
+  // Honour the width the model declares for its leaves.
+  //
+  // The reference runtimes evaluate a float32 ensemble in float32; computing
+  // the whole chain in double instead keeps values float32 cannot represent.
+  // That is harmless for the probability itself -- the gap is far inside any
+  // sane tolerance -- but it decides ties: a binary margin of 1.6e-8
+  // sigmoids to exactly 0.5 at float32 width and to 0.50000000391 at double,
+  // and argmax over [0.5, 0.5] picks class 0 while argmax over
+  // [0.49999999609, 0.50000000391] picks class 1. The predicted class flips
+  // on a difference the tolerance was never meant to cover.
+  const out = applyPostTransform(rawScores, ensemble.post_transform, outWidth);
+  if (leafDtypeIsF32) {
+    for (let i = 0; i < out.length; i++) out[i] = Math.fround(out[i]);
+  }
+  return out;
 }

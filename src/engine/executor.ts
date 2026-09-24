@@ -16,6 +16,7 @@ import { executeNeuralNetwork } from './nn.js';
 import { executeNaiveBayes } from './naive_bayes.js';
 import { executeClustering } from './clustering.js';
 import { executeSVM } from './svm.js';
+import { executeAnomalyDetection } from './anomaly.js';
 import { computeExplain } from './explain.js';
 import type { ModelExplain } from './explain.js';
 import {
@@ -393,6 +394,13 @@ function executeNode(
   } else if (node.svm) {
     outputData = executeSVM(node.svm, flatInputs, numSlots, N, resolved);
     outputWidth = outputData.length / N;
+  } else if (node.anomaly_detection) {
+    // Returns null for the implementations this engine does not cover; the
+    // node then publishes nothing rather than a wrong score.
+    outputData = executeAnomalyDetection(
+      node.anomaly_detection, flatInputs, numSlots, N, resolved);
+    if (!outputData) return;
+    outputWidth = 1;
   } else if (node.clustering) {
     const { labels, distances } = executeClustering(
       node.clustering, flatInputs, numSlots, N, resolved);

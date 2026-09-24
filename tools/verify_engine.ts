@@ -21,7 +21,10 @@
 
 import { readFileSync, readdirSync, existsSync } from 'node:fs';
 import { join, resolve as resolvePath, basename } from 'node:path';
-import * as protobuf from 'protobufjs';
+// protobufjs 8 ships CommonJS, so under ESM `import * as protobuf` yields a
+// namespace object whose only keys are `default` and `module.exports` --
+// protobuf.parse is then undefined. A default import gets the real module.
+import protobuf from 'protobufjs';
 import { fromJSON } from '../src/io.js';
 import { Engine, tensorToData, scalarToNumber } from '../src/index.js';
 import type { OMLEModel, TensorEntry } from '../src/ir.js';

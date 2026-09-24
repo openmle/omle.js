@@ -101,12 +101,25 @@ FILE_DESC: FileDescriptor = _pb2.DESCRIPTOR
 # Messages with exactly one field named "values" that is REPEATED are transparent
 # array wrappers (flattenListWrappers in io.ts unwraps them at runtime).
 
+def _is_repeated(field):
+    """Whether a field is repeated.
+
+    protobuf's upb implementation dropped FieldDescriptor.label (it is still a
+    class constant, but no longer an instance attribute), so read is_repeated
+    when it exists and fall back to the label for older runtimes.
+    """
+    is_rep = getattr(field, "is_repeated", None)
+    if is_rep is not None:
+        return bool(is_rep)
+    return field.label == FieldDescriptor.LABEL_REPEATED
+
+
 def _list_wrapper_element_ts(msg: Descriptor) -> Optional[str]:
     fields = list(msg.fields)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", DeprecationWarning)
         is_rep = (len(fields) == 1 and fields[0].name == "values"
-                  and fields[0].label == FieldDescriptor.LABEL_REPEATED)
+                  and _is_repeated(fields[0]))
     if not is_rep:
         return None
     f = fields[0]
@@ -227,14 +240,15 @@ _REQUIRED: set[tuple[str, str]] = {
 }
 
 # ── Extra fields injected into specific messages ───────────────────────────────
-# Fields that the engine uses but are not yet in omle.proto.
-# When the proto is updated these entries should be removed.
-_EXTRA_MSG_FIELDS: dict[str, list[str]] = {
-    "Node": [
-        "  scorecard?: Scorecard;",
-        "  ruleset?: RuleSet;",
-    ],
-}
+# Escape hatch for a field the engine needs before omle.proto carries it.
+#
+# Empty, and it should stay that way unless something is genuinely mid-flight:
+# entries here are injected on every run, so a stale one silently resurrects
+# itself into src/ir.ts the next time anyone regenerates. That is what happened
+# to Node.scorecard / Node.ruleset -- they were dropped from omle.proto, but
+# the injection kept putting them back, declaring types no engine file refers
+# to.
+_EXTRA_MSG_FIELDS: dict[str, list[str]] = {}
 
 # ── Field rendering ────────────────────────────────────────────────────────────
 
@@ -258,7 +272,7 @@ def _field_line(field: FieldDescriptor) -> str:
     is_wrapper = field.message_type and _resolve_wrapper(field.message_type)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", DeprecationWarning)
-        repeated = field.label == FieldDescriptor.LABEL_REPEATED and not is_map and not is_wrapper
+        repeated = _is_repeated(field) and not is_map and not is_wrapper
     if repeated:
         ts_type = f"{ts_type}[]"
     parent_ts = _ts_name(field.containing_type)
@@ -301,6 +315,13 @@ def _emit_message(msg: Descriptor) -> str:
     for extra in _EXTRA_MSG_FIELDS.get(ts_n, []):
         lines.append(extra)
     lines.append("}")
+    # A message with no fields emits `export interface X {}`, which
+    # @typescript-eslint/no-empty-object-type rejects. The type is still the
+    # right shape for a marker message (TruePredicate, FalsePredicate), so
+    # silence the rule at the declaration rather than reshaping the output.
+    if len(lines) == 2:
+        lines.insert(0, "// eslint-disable-next-line @typescript-eslint/no-empty-object-type")
+        return f"{lines[0]}\n{lines[1]}}}\n"
     return "\n".join(lines) + "\n"
 
 # ── Static blocks ─────────────────────────────────────────────────────────────
@@ -321,47 +342,10 @@ PREAMBLE = f"""\
 //   - int64 values are represented as number (safe up to 2^53)
 """
 
-# Engine types not yet in omle.proto.  Remove each entry once the proto
-# is updated and the field/message is generated automatically above.
-STATIC_EXTRAS = """
-// ── Types not yet in omle.proto (engine compatibility) ────────────────────
-
-export interface ScorecardAttribute {
-  predicate?: Predicate;
-  partial_score: Scalar;
-}
-
-export interface ScorecardCharacteristic {
-  name?: string;
-  attributes?: ScorecardAttribute[];
-}
-
-export interface Scorecard {
-  task_type?: TaskType;
-  baseline_score?: Scalar;
-  characteristics?: ScorecardCharacteristic[];
-  post_transform?: PostTransform;
-}
-
-export type RuleSetSelectionMethod =
-  | 'SELECTION_METHOD_UNSPECIFIED'
-  | 'FIRST_HIT' | 'WEIGHTED_SUM' | 'WEIGHTED_MAX';
-
-export interface Rule {
-  id?: string;
-  condition?: Predicate;
-  score?: Scalar;
-  confidence?: Scalar;
-  priority?: number;
-}
-
-export interface RuleSet {
-  task_type?: TaskType;
-  rules?: Rule[];
-  selection_method?: RuleSetSelectionMethod;
-  post_transform?: PostTransform;
-}
-"""
+# Whole-type escape hatch, the counterpart to _EXTRA_MSG_FIELDS above, and
+# empty for the same reason: omle.proto is the source of truth for the IR, and
+# anything emitted here outlives its removal from the proto.
+STATIC_EXTRAS = ""
 
 HELPERS = """
 // ── Runtime helpers (not auto-generated) ─────────────────────────────────────
@@ -415,7 +399,10 @@ def generate(out_path: Path) -> None:
                 emitted_msgs.add(ts_n)
                 chunks.append(_emit_message(msg))
 
-    chunks.append(STATIC_EXTRAS)
+    # Skip the escape hatch entirely when it is empty, so an unused hook does
+    # not leave a stray blank line in the generated file.
+    if STATIC_EXTRAS:
+        chunks.append(STATIC_EXTRAS)
     chunks.append(HELPERS)
 
     out_path.parent.mkdir(parents=True, exist_ok=True)

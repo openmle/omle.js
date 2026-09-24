@@ -14,6 +14,7 @@ import {
   executeMinMaxScaler,
   executeNormalizer,
   executeOneHotEncoder,
+  executeImputer,
 } from '../../../src/engine/preprocess.js';
 import type { Node } from '../../../src/ir.js';
 import type { TensorData } from '../../../src/engine/ops.js';
@@ -368,5 +369,92 @@ describe('executeOneHotEncoder', () => {
       { name: 'categories', strings: ['0', '1'] },
     ]), ['x'], ns, 1, emptyResolved());
     expect(getFloatOut(ns)).toEqual([0, 0]);
+  });
+
+  // The input used to be copied through a Float64Array before the category
+  // lookup, so a STRING column arrived as NaN and matched nothing.
+  test('encodes a string column', () => {
+    const ns = new Map<string, TensorData>([
+      ['x', { dtype: 'STRING', shape: [3, 1], data: ['b', 'a', 'c'] } as TensorData],
+    ]);
+    executeOneHotEncoder(node([
+      { name: 'categories', strings: ['a', 'b', 'c'] },
+    ]), ['x'], ns, 3, emptyResolved());
+    expect(getFloatOut(ns)).toEqual([0, 1, 0,  1, 0, 0,  0, 0, 1]);
+  });
+
+  // Several single-column inputs, each its own feature, with per-feature
+  // spans given by category_offsets — the ColumnTransformer shape.
+  test('encodes several single-column string inputs', () => {
+    const ns = new Map<string, TensorData>([
+      ['a', { dtype: 'STRING', shape: [2, 1], data: ['S', 'C'] } as TensorData],
+      ['b', { dtype: 'STRING', shape: [2, 1], data: ['male', 'female'] } as TensorData],
+    ]);
+    executeOneHotEncoder(node([
+      { name: 'categories', strings: ['C', 'Q', 'S', 'female', 'male'] },
+      { name: 'category_offsets', tensor: { type: { dtype: 'INT64', shape: [3] }, int64_data: [0, 3, 5] } },
+    ]), ['a', 'b'], ns, 2, emptyResolved());
+    //           C Q S | female male
+    expect(getFloatOut(ns)).toEqual([0, 0, 1, 0, 1,   1, 0, 0, 1, 0]);
+  });
+
+  // Categories stored as an INT64 tensor decode to numbers, and the old
+  // lookup compared them against a stringified probe with === (1 === "1" is
+  // false), so numeric category lists never matched.
+  test('encodes against numeric categories', () => {
+    const ns = new Map<string, TensorData>([
+      ['x', floatTd([3, 1, 2], [3, 1])],
+    ]);
+    executeOneHotEncoder(node([
+      { name: 'categories', tensor: { type: { dtype: 'INT64', shape: [3] }, int64_data: [1, 2, 3] } },
+    ]), ['x'], ns, 3, emptyResolved());
+    expect(getFloatOut(ns)).toEqual([0, 0, 1,  1, 0, 0,  0, 1, 0]);
+  });
+});
+
+// ── executeImputer ────────────────────────────────────────────────────────────
+
+describe('executeImputer', () => {
+  test('imputes a single wide input column-wise', () => {
+    const ns = new Map<string, TensorData>([
+      ['x', floatTd([1, NaN, NaN, 4], [2, 2])],
+    ]);
+    executeImputer(node([
+      { name: 'fill_tensor', tensor: { type: { dtype: 'FLOAT64', shape: [2] }, float64_data: [10, 20] } },
+    ]), ['x'], ns, 2, emptyResolved());
+    expect(getFloatOut(ns)).toEqual([1, 20, 10, 4]);
+  });
+
+  // Several single-column inputs feeding one output: the multi-input branch
+  // wrote outputs[fi] per input, so with one output every feature after the
+  // first was silently dropped and the result came back one column wide.
+  test('several single-column inputs with one output produce a wide tensor', () => {
+    const ns = new Map<string, TensorData>([
+      ['age', floatTd([25, NaN], [2, 1])],
+      ['fare', floatTd([7.5, 13.0], [2, 1])],
+    ]);
+    executeImputer(node([
+      { name: 'fill_tensor', tensor: { type: { dtype: 'FLOAT64', shape: [2] }, float64_data: [28, 14] } },
+    ]), ['age', 'fare'], ns, 2, emptyResolved());
+    const out = ns.get('out')!;
+    expect(out.shape).toEqual([2, 2]);
+    expect(Array.from(out.data as Float64Array)).toEqual([25, 7.5, 28, 13.0]);
+  });
+
+  test('one output per input still publishes per column', () => {
+    const n: Node = {
+      name: 'test', op: 'test',
+      outputs: [{ name: 'o1' }, { name: 'o2' }],
+      attributes: [
+        { name: 'fill_tensor', tensor: { type: { dtype: 'FLOAT64', shape: [2] }, float64_data: [28, 14] } },
+      ] as import('../../../src/ir.js').Attribute[],
+    };
+    const ns = new Map<string, TensorData>([
+      ['age', floatTd([NaN], [1, 1])],
+      ['fare', floatTd([NaN], [1, 1])],
+    ]);
+    executeImputer(n, ['age', 'fare'], ns, 1, emptyResolved());
+    expect(Array.from(ns.get('o1')!.data as Float64Array)).toEqual([28]);
+    expect(Array.from(ns.get('o2')!.data as Float64Array)).toEqual([14]);
   });
 });

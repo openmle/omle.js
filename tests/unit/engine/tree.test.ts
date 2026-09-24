@@ -137,14 +137,31 @@ describe('executeTreeEnsemble — SUM aggregation', () => {
     expectClose(out, [1.5, 0.5, -1.5]);
   });
 
-  test('base_score is added to all outputs', () => {
+  test('base_scores is added to all outputs', () => {
+    // base_scores is a TensorValue with one entry per output column. The test
+    // previously set `base_score`, a Scalar the proto has not carried for some
+    // time, so it asserted against a field the engine could never read.
     const ensemble: TreeEnsemble = {
       trees: [stump(0, 5.0, 0.0, 0.0)],
       aggregation: 'SUM',
-      base_score: { double_value: 10.0 },
+      base_scores: { tensor: { type: { dtype: 'FLOAT64', shape: [1] }, float64_data: [10.0] } },
     };
     const out = executeTreeEnsemble(ensemble, f64(3.0), 1, 1, emptyResolved());
     expectClose(out, [10.0]);
+  });
+
+  test('base_scores applies per output column for multiclass', () => {
+    const t = stump(0, 5.0, 0.0, 0.0);
+    const ensemble: TreeEnsemble = {
+      trees: [t, t, t],
+      tree_group: [0, 1, 2],
+      aggregation: 'SUM',
+      base_scores: {
+        tensor: { type: { dtype: 'FLOAT64', shape: [3] }, float64_data: [1.0, 2.0, 3.0] },
+      },
+    };
+    const out = executeTreeEnsemble(ensemble, f64(3.0), 1, 1, emptyResolved());
+    expectClose(out, [1.0, 2.0, 3.0]);
   });
 
   test('tree_weights scale individual tree outputs', () => {

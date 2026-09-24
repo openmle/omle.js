@@ -441,8 +441,8 @@ export interface TreeEnsemble {
   aggregation?: TreeEnsembleAggregation;
   // _tree_weights oneof
   tree_weights?: TensorValue;
-  // _base_score oneof
-  base_score?: Scalar;
+  // _base_scores oneof
+  base_scores?: TensorValue;
   tree_group?: number[];
   post_transform?: PostTransform;
 }
