@@ -60,6 +60,17 @@ export interface StepSnapshot {
   durationMs: number;
   /** Structured model body breakdown — present for tree ensemble, linear, naive bayes, clustering */
   explain?: ModelExplain;
+  /**
+   * Steps for a composite node's interior, in execution order.
+   *
+   * Present only on a composite. A composite runs a whole subgraph, so as a
+   * single step it reports the aggregate and nothing about how the result was
+   * reached; these are the interior nodes, captured with the same shape so a
+   * caller can drill in and replay them. Ids follow the same `node:<name>`
+   * scheme, scoped to the composite's own namespace, which is how the interior
+   * graph names them too.
+   */
+  children?: StepSnapshot[];
 }
 
 export interface SteppedResult {
@@ -180,34 +191,10 @@ export class Engine {
     }
     const N = inferBatchSize(namespace);
     expandSchemaFeatures(model, namespace, N);
+    // The top-level array is one entry per top-level node, exactly as before;
+    // a composite's interior hangs off its own step as `children`.
     const steps: StepSnapshot[] = [];
-
-    for (const node of resolved.executionOrder) {
-      const inputNames = [...new Set(expandNodeInputs(node.inputs ?? []))];
-      const inputsBefore: Record<string, SerializedTensor> = {};
-      for (const name of inputNames) {
-        inputsBefore[name] = serializeTensor(namespace.get(name));
-      }
-
-      const warnings: string[] = [];
-      const t0 = performance.now();
-      try {
-        executeNode(node, namespace, N, resolved);
-      } catch (e) {
-        warnings.push(String(e));
-      }
-      const durationMs = performance.now() - t0;
-
-      const outputsAfter: Record<string, SerializedTensor> = {};
-      for (const out of node.outputs ?? []) {
-        const td = namespace.get(out.name);
-        outputsAfter[out.name] = serializeTensor(td);
-        if (!td && warnings.length === 0) warnings.push(`Output "${out.name}" was not produced`);
-      }
-
-      const explain = computeExplain(node, namespace, resolved);
-      steps.push({ nodeName: node.name, nodeId: `node:${node.name}`, inputs: inputsBefore, outputs: outputsAfter, warnings, durationMs, explain });
-    }
+    executeNodes(resolved.executionOrder, namespace, N, resolved, steps);
 
     const output: InferenceOutput = {};
     for (const outSpec of model.outputs ?? []) {
@@ -342,10 +329,62 @@ function executeNodes(
   namespace: Map<string, TensorData>,
   N: number,
   resolved: ResolvedModel,
+  record?: StepSnapshot[],
 ) {
   for (const node of nodes) {
-    executeNode(node, namespace, N, resolved);
+    if (record) record.push(snapshotNode(node, namespace, N, resolved));
+    else executeNode(node, namespace, N, resolved);
   }
+}
+
+/**
+ * Execute one node and capture a snapshot of it.
+ *
+ * Shared by runWithSteps() and by composite recursion, so stepping through a
+ * subgraph goes through the same namespace setup as running it normally --
+ * re-implementing the composite's aliasing here to capture its interior would
+ * drift from executeComposite() the first time either changed.
+ */
+function snapshotNode(
+  node: Node,
+  namespace: Map<string, TensorData>,
+  N: number,
+  resolved: ResolvedModel,
+): StepSnapshot {
+  const inputNames = [...new Set(expandNodeInputs(node.inputs ?? []))];
+  const inputsBefore: Record<string, SerializedTensor> = {};
+  for (const name of inputNames) {
+    inputsBefore[name] = serializeTensor(namespace.get(name));
+  }
+
+  const warnings: string[] = [];
+  const children: StepSnapshot[] | undefined = node.composite ? [] : undefined;
+  const t0 = performance.now();
+  try {
+    if (children) executeComposite(node, namespace, N, resolved, children);
+    else executeNode(node, namespace, N, resolved);
+  } catch (e) {
+    warnings.push(String(e));
+  }
+  const durationMs = performance.now() - t0;
+
+  const outputsAfter: Record<string, SerializedTensor> = {};
+  for (const out of node.outputs ?? []) {
+    const td = namespace.get(out.name);
+    outputsAfter[out.name] = serializeTensor(td);
+    if (!td && warnings.length === 0) warnings.push(`Output "${out.name}" was not produced`);
+  }
+
+  return {
+    nodeName: node.name,
+    nodeId: `node:${node.name}`,
+    inputs: inputsBefore,
+    outputs: outputsAfter,
+    warnings,
+    durationMs,
+    explain: computeExplain(node, namespace, resolved),
+    ...(children && children.length > 0 ? { children } : {}),
+  };
 }
 
 function executeNode(
@@ -545,6 +584,7 @@ function executeComposite(
   parentNamespace: Map<string, TensorData>,
   N: number,
   resolved: ResolvedModel,
+  record?: StepSnapshot[],
 ) {
   const composite = node.composite!;
   const localNS = new Map<string, TensorData>();
@@ -569,8 +609,9 @@ function executeComposite(
   // nodes (e.g. from ColumnTransformer) can resolve individual column names.
   expandSchemaFeatures(resolved.model, localNS, N);
 
-  // Execute internal nodes
-  executeNodes(composite.nodes ?? [], localNS, N, resolved);
+  // Execute internal nodes. Passing the recorder down captures nested
+  // composites too, at whatever depth.
+  executeNodes(composite.nodes ?? [], localNS, N, resolved, record);
 
   // Publish outputs back to parent
   for (const out of node.outputs ?? []) {
