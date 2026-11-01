@@ -1,6 +1,6 @@
 # omle.js
 
-[![npm](https://img.shields.io/npm/v/omle.svg)](https://www.npmjs.com/package/omle)
+[![npm](https://img.shields.io/npm/v/%40openmle%2Fomle.svg)](https://www.npmjs.com/package/@openmle/omle)
 [![Tests](https://github.com/openmle/omle.js/actions/workflows/test.yml/badge.svg)](https://github.com/openmle/omle.js/actions/workflows/test.yml)
 
 TypeScript library for loading, parsing, validating, and executing [OMLE](https://github.com/openmle) models. Works in Node.js and the browser. One runtime dependency (`protobufjs`, for binary `.omle` decoding).
@@ -17,7 +17,7 @@ TypeScript library for loading, parsing, validating, and executing [OMLE](https:
 ## Installation
 
 ```bash
-npm install omle
+npm install @openmle/omle
 ```
 
 > **Node ≥ 18, ESM only.** The package ships ES2022 modules with full `.d.ts` declarations.
@@ -25,7 +25,7 @@ npm install omle
 ## Quick start
 
 ```ts
-import { fromJSON, validate, Engine } from 'omle';
+import { fromJSON, validate, Engine } from '@openmle/omle';
 import { readFileSync } from 'node:fs';
 
 const model = fromJSON(readFileSync('model.json', 'utf8'));
@@ -137,7 +137,7 @@ interface SteppedResult {
 ### Ops utilities
 
 ```ts
-import { tensorToData, applyPostTransform } from 'omle';
+import { tensorToData, applyPostTransform } from '@openmle/omle';
 
 // Convert an IR Tensor to the engine's internal TensorData
 tensorToData(tensor: Tensor): TensorData

@@ -1,7 +1,7 @@
 // omle.js — Public API
 //
 // Usage:
-//   import { fromJSON, validate, Engine } from 'omle';
+//   import { fromJSON, validate, Engine } from '@openmle/omle';
 //   const model = fromJSON(jsonString);
 //   const result = validate(model);
 //   const engine = new Engine(model);

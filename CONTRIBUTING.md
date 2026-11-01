@@ -131,8 +131,8 @@ git push origin v0.2.0
 ```
 
 A tag carrying a semver prerelease (`v0.2.0-rc1`) publishes under the `next`
-dist-tag, so `npm install omle` keeps resolving to the last stable
-release; test it with `npm install omle@next`. A plain `v0.2.0`
+dist-tag, so `npm install @openmle/omle` keeps resolving to the last stable
+release; test it with `npm install @openmle/omle@next`. A plain `v0.2.0`
 publishes to `latest`.
 
 Tags that are not semver (`vnightly`, `v0.2`) fail before anything is built.

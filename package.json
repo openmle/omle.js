@@ -1,5 +1,5 @@
 {
-  "name": "omle",
+  "name": "@openmle/omle",
   "version": "0.0.0-dev",
   "description": "TypeScript library for loading, parsing, validating, and executing OMLE models",
   "type": "module",
